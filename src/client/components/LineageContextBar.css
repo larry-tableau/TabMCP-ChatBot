@@ -1,0 +1,66 @@
+/**
+ * LineageContextBar.css - Lineage Context Bar Styling
+ * Phase 5, Task 4: Styling for lineage context bar matching e-bikes demo aesthetics
+ * 
+ * Design Principles:
+ * - Clean, modern, professional
+ * - Simple text or badge format
+ * - Prominently displayed
+ * - Responsive design
+ */
+
+.lineage-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-top: 1px solid #e9ecef;
+  font-size: 14px;
+  color: #495057;
+  flex-wrap: wrap;
+}
+
+.lineage-context-bar-prefix {
+  font-weight: 500;
+  color: #6c757d;
+  flex-shrink: 0;
+}
+
+.lineage-context-bar-text {
+  color: #2c3e50;
+  font-weight: 400;
+  word-break: break-word;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .lineage-context-bar {
+    font-size: 13px;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+
+  .lineage-context-bar-prefix {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .lineage-context-bar {
+    font-size: 12px;
+    padding: 5px 8px;
+    gap: 4px;
+  }
+
+  .lineage-context-bar-prefix {
+    font-size: 11px;
+  }
+
+  .lineage-context-bar-text {
+    font-size: 11px;
+  }
+}
+

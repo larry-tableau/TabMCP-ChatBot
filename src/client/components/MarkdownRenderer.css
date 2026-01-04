@@ -1,0 +1,200 @@
+/**
+ * MarkdownRenderer.css - Styling for rendered markdown content
+ * Phase 8: Markdown rendering for assistant messages
+ * 
+ * Matches e-bikes demo aesthetics with clean, professional styling.
+ * Uses existing color palette (#f8f9fa, #e9ecef, #333, #007bff).
+ */
+
+.markdown-content {
+  line-height: 1.6;
+  color: #333;
+  white-space: normal; /* Override any parent pre-wrap for proper markdown rendering */
+}
+
+/* Headings */
+.markdown-h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #333;
+}
+
+.markdown-h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: #333;
+}
+
+.markdown-h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: #333;
+}
+
+/* Paragraphs */
+.markdown-content p {
+  margin-bottom: 0.75rem;
+}
+
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Bold and Italic */
+.markdown-content strong {
+  font-weight: 600;
+  color: #333;
+}
+
+.markdown-content em {
+  font-style: italic;
+}
+
+/* Lists */
+.markdown-content ul,
+.markdown-content ol {
+  margin-left: 1.5rem;
+  margin-bottom: 0.75rem;
+  padding-left: 1rem;
+}
+
+.markdown-content li {
+  margin-bottom: 0.25rem;
+}
+
+/* Tables */
+.markdown-table-wrapper {
+  overflow-x: auto;
+  margin: 1rem 0;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+}
+
+.markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.markdown-table th {
+  background: #f8f9fa;
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid #e9ecef;
+  color: #333;
+}
+
+.markdown-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #e9ecef;
+  color: #333;
+}
+
+.markdown-table tr:last-child td {
+  border-bottom: none;
+}
+
+.markdown-table tr:hover {
+  background: #f8f9fa;
+}
+
+/* Code */
+.markdown-content code {
+  background: #f8f9fa;
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #e83e8c;
+}
+
+.markdown-content pre {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 1rem 0;
+  border: 1px solid #e9ecef;
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  color: #333;
+}
+
+/* Links */
+.markdown-link {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.markdown-link:hover {
+  text-decoration: underline;
+}
+
+/* Horizontal rules */
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid #e9ecef;
+  margin: 1.5rem 0;
+}
+
+/* Blockquotes */
+.markdown-content blockquote {
+  border-left: 4px solid #007bff;
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-right: 0;
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .markdown-h1 {
+    font-size: 1.3rem;
+  }
+  
+  .markdown-h2 {
+    font-size: 1.15rem;
+  }
+  
+  .markdown-h3 {
+    font-size: 1rem;
+  }
+  
+  .markdown-table-wrapper {
+    margin: 0.75rem 0;
+  }
+  
+  .markdown-table th,
+  .markdown-table td {
+    padding: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .markdown-h1 {
+    font-size: 1.2rem;
+  }
+  
+  .markdown-h2 {
+    font-size: 1.1rem;
+  }
+  
+  .markdown-table th,
+  .markdown-table td {
+    padding: 0.4rem;
+    font-size: 0.9rem;
+  }
+}
+

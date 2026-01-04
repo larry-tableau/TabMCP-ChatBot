@@ -1,0 +1,275 @@
+/**
+ * DatasourceSelector.css - Datasource Selector Styling
+ * Phase 5, Task 3: Styling for datasource selector matching e-bikes demo aesthetics
+ * 
+ * Design Principles:
+ * - Clean, modern, professional
+ * - Searchable dropdown/list
+ * - Current selection highlighted
+ * - Responsive design
+ */
+
+/* Import shared skeleton styles */
+@import './Skeleton.css';
+
+.datasource-selector {
+  position: relative;
+  display: inline-block;
+  min-width: 200px;
+  max-width: 400px;
+  width: 100%;
+}
+
+.datasource-selector-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.datasource-selector-button:hover:not(:disabled) {
+  border-color: #007bff;
+  background: #f8f9fa;
+}
+
+.datasource-selector-button:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.datasource-selector-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.datasource-selector-label {
+  font-weight: 500;
+  color: #495057;
+  flex-shrink: 0;
+}
+
+.datasource-selector-value {
+  flex: 1;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.datasource-selector-loading {
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Skeleton styles for datasource selector (Phase 8, Task 3) */
+.datasource-selector-skeleton {
+  display: inline-block;
+  width: 100%;
+  min-width: 120px;
+}
+
+.datasource-selector-error {
+  color: #dc3545;
+}
+
+.datasource-selector-arrow {
+  flex-shrink: 0;
+  color: #6c757d;
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.datasource-selector-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.datasource-selector-search {
+  padding: 8px;
+  border-bottom: 1px solid #e9ecef;
+  background: #f8f9fa;
+}
+
+.datasource-selector-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s ease;
+}
+
+.datasource-selector-search-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.datasource-selector-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 300px;
+}
+
+/* Custom scrollbar */
+.datasource-selector-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.datasource-selector-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.datasource-selector-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.datasource-selector-list::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.datasource-selector-item {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: white;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+.datasource-selector-item:last-child {
+  border-bottom: none;
+}
+
+.datasource-selector-item:hover {
+  background: #f8f9fa;
+}
+
+.datasource-selector-item-selected {
+  background: #e7f3ff;
+  border-left: 3px solid #007bff;
+}
+
+.datasource-selector-item-selected:hover {
+  background: #d0e7ff;
+}
+
+.datasource-selector-item-name {
+  font-weight: 500;
+  color: #2c3e50;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.datasource-selector-item-luid {
+  font-size: 12px;
+  color: #6c757d;
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Consolas', monospace;
+  word-break: break-all;
+}
+
+.datasource-selector-item-description {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.datasource-selector-empty {
+  padding: 20px;
+  text-align: center;
+  color: #6c757d;
+  font-size: 14px;
+}
+
+.datasource-selector-error-message {
+  padding: 20px;
+  text-align: center;
+  color: #dc3545;
+}
+
+.datasource-selector-error-details {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 8px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .datasource-selector {
+    max-width: 100%;
+  }
+
+  .datasource-selector-button {
+    font-size: 13px;
+    padding: 6px 10px;
+  }
+
+  .datasource-selector-label {
+    display: none; /* Hide label on mobile to save space */
+  }
+
+  .datasource-selector-dropdown {
+    max-height: 300px;
+  }
+}
+
+@media (max-width: 480px) {
+  .datasource-selector-button {
+    font-size: 12px;
+    padding: 5px 8px;
+  }
+
+  .datasource-selector-item {
+    padding: 8px 10px;
+  }
+
+  .datasource-selector-item-name {
+    font-size: 13px;
+  }
+
+  .datasource-selector-item-luid {
+    font-size: 11px;
+  }
+}
+
