@@ -45,7 +45,7 @@ This app lets you ask questions about your data in plain English. You type a que
    - MCP URL and token (for Tableau access)
    - LLM Gateway URL and token (for AI responses)
 
-4. **Run the app:**
+4. **Run the app (development):**
    ```bash
    npm run dev
    ```
@@ -92,7 +92,7 @@ Edit `.env` with your actual values:
 
 **Important:** Never hard-code datasource LUIDs, workbook IDs, or view IDs in the code. Always use environment variables or dynamic retrieval from Tableau MCP.
 
-### 3. Development
+### 3. Run in Development
 
 ```bash
 # Start development server (runs both frontend and backend)
@@ -101,14 +101,22 @@ npm run dev
 
 The frontend will be available at `http://localhost:3000` and the backend API at `http://localhost:4001`.
 
-### 4. Build for Production
+### 4. Run in Production
 
 ```bash
 # Build both frontend and backend
 npm run build
 
-# Start production server
+# Start production server (serves the built frontend)
 npm start
+```
+
+**Note:** `npm start` only runs the server. It does not run the Vite dev client.  
+If you skip `npm run build`, the UI will not be available.
+
+To explicitly run in production mode:
+```bash
+NODE_ENV=production npm start
 ```
 
 ## Project Structure
@@ -247,4 +255,3 @@ Quick reference:
 ## License
 
 MIT
-
