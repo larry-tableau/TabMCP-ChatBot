@@ -82,6 +82,8 @@ Edit `.env` with your actual values:
 - `MCP_AUTH_TOKEN`: Your MCP authentication token
 - `LLM_GATEWAY_URL`: LLM Gateway endpoint
 - `ANTHROPIC_AUTH_TOKEN`: Your Anthropic API token
+- `LLM_MODEL`: LLM model identifier (optional, default: 'claude-sonnet-4-5-20250929')
+- `LLM_MAX_TOKENS`: Default maximum tokens for requests (optional, default: 1024, must be >= 1)
 - `DEFAULT_DATASOURCE_LUID`: Default datasource LUID (optional, can be set at runtime)
 - `DEFAULT_DATASOURCE_NAME`: Default datasource name (optional)
 - `DEFAULT_WORKBOOK_ID`: Default workbook ID (optional)
@@ -199,6 +201,7 @@ Quick reference:
    heroku config:set LLM_GATEWAY_URL=your-gateway-url
    heroku config:set ANTHROPIC_AUTH_TOKEN=your-token
    heroku config:set LLM_MODEL=claude-sonnet-4-5-20250929
+   heroku config:set LLM_MAX_TOKENS=1024
    heroku config:set NODE_ENV=production
    # Optional defaults:
    heroku config:set DEFAULT_DATASOURCE_LUID=your-luid
