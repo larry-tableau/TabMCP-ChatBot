@@ -29,3 +29,10 @@ Thumbs.db
 
 # Debug logs (optional)
 .cursor/
+
+#Builds
+plans/
+tools/
+spec.md
+plan.md
+build_docs/

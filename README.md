@@ -19,6 +19,7 @@ This app lets you ask questions about your data in plain English. You type a que
 - Lineage tracking (datasource → workbook → view)
 - Real-time progress indicators
 - Session-based conversation state
+- **Context enrichment**: Automatically includes complete datasource metadata (fields, types, roles, descriptions) in LLM system message to enable accurate query understanding and tool-calling (cached per datasource with 5-minute expiration)
 
 ## Tech Stack
 
@@ -245,9 +246,40 @@ Quick reference:
 **Problem: App shows errors in browser**
 - **Solution:** Check that both frontend (port 3000) and backend (port 4001) are running. Open browser developer tools (F12) to see detailed error messages.
 
+## How Datasource Metadata is Used
+
+The chatbot uses datasource metadata in two key ways:
+
+### 1. LLM Context Enrichment
+**Every query includes complete datasource metadata in the LLM system message:**
+- All field names, data types, and roles (DIMENSION/MEASURE)
+- Field descriptions (when available from Tableau)
+- Datasource name and description
+- Workbook and view information (when selected)
+
+This metadata is formatted as a context string and sent to the LLM as part of the system message, enabling the AI to:
+- Understand the data structure and available fields
+- Generate accurate tool calls with correct field names
+- Provide context-aware answers about the data
+
+**Implementation:** `src/server/utils/contextEnvelope.ts` → `buildContextEnvelope()` → sent to LLM via `toolCallingLoop.ts`
+
+### 2. Dynamic Clarification Logic
+**Metadata is also used to improve clarification prompts:**
+- `aliasIndex`: Maps tokens to field names for better field name suggestions
+- `metricFields`: Identifies measure fields for metric-related clarifications
+- `timeFields`: Identifies date/time fields for temporal clarifications
+
+This enables the chatbot to provide dynamic, metadata-driven clarification questions instead of hardcoded prompts.
+
+**Implementation:** `src/server/utils/clarification.ts` → uses metadata indices from cache
+
+**For more details:** See `docs/contextualization.md`
+
 ## Documentation
 
 - `docs/API.md` - API endpoint documentation
+- `docs/contextualization.md` - Context enrichment with datasource and field descriptions
 - `docs/spec.md` - Complete product specification
 - `docs/Coding_Workflow_Assistant.md` - Coding guidelines
 - `plan.md` - Project plan and status tracking

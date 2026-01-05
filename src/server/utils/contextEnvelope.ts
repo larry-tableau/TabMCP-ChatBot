@@ -3,10 +3,25 @@
  * Phase 4, Task 1: Build and maintain an LLM context envelope
  * 
  * This module provides utilities for:
- * - Building LLM context envelopes with datasource description and workbook/view tags
+ * - Building LLM context envelopes with complete datasource metadata (fields, types, roles, descriptions)
+ * - Formatting metadata as a context string that is sent to the LLM as a system message
  * - Caching context to avoid repeated MCP calls
  * - Invalidating and refreshing cache on selection changes
- * - Formatting context as system message for LLM
+ * - Building metadata indices (aliasIndex, metricFields, timeFields) for clarification logic
+ * 
+ * **How Metadata is Used:**
+ * The formatted context string is sent to the LLM in every query as part of the system message.
+ * The LLM uses this metadata to:
+ * - Understand available fields and their data types
+ * - Know which fields are dimensions vs measures
+ * - Generate accurate tool calls with correct field names
+ * - Provide context-aware answers about the data structure
+ * 
+ * **Implementation Flow:**
+ * 1. `buildContextEnvelope()` fetches metadata from MCP and formats it
+ * 2. Context string is cached per datasource (5-minute expiration)
+ * 3. `toolCallingLoop.ts` retrieves context and includes it in LLM system message
+ * 4. LLM receives metadata and uses it for query understanding and tool-calling
  * 
  * CRITICAL: Never hard-code datasource LUIDs, workbook IDs, or view IDs
  * Always use dynamic parameters from function arguments or config
@@ -26,6 +41,8 @@ interface ContextCache {
   datasourceLuid: string;
   /** Datasource name (from metadata or config) */
   datasourceName?: string;
+  /** Datasource description (from metadata) */
+  datasourceDescription?: string;
   /** Datasource metadata (fields, parameters) */
   datasourceMetadata?: DatasourceMetadata;
   /** Workbook ID (for lineage tags) */
@@ -38,6 +55,12 @@ interface ContextCache {
   viewName?: string;
   /** Formatted context string */
   contextString?: string;
+  /** Alias index: token → list of candidate field names */
+  aliasIndex?: Record<string, string[]>;
+  /** Metric fields: fields that are measures or quantitative numeric fields */
+  metricFields?: string[];
+  /** Time fields: fields with DATE dataType (primary) or time-related descriptions (fallback) */
+  timeFields?: string[];
   /** Cache timestamp (milliseconds since epoch) */
   timestamp: number;
 }
@@ -78,11 +101,92 @@ function getMCPClient(): MCPClient {
 }
 
 /**
+ * Sanitize description text by trimming whitespace and limiting length
+ * 
+ * @param desc - Description text to sanitize
+ * @param maxLength - Maximum length (default: 300)
+ * @returns Sanitized description or undefined if empty
+ */
+function sanitizeDescription(desc?: string, maxLength = 300): string | undefined {
+  if (!desc?.trim()) return undefined;
+  const cleaned = desc.replace(/\s+/g, ' ').trim();
+  return cleaned.length <= maxLength ? cleaned : cleaned.slice(0, maxLength) + '...';
+}
+
+/**
+ * Build indices from datasource metadata for clarification logic
+ * Single source of truth - import/use elsewhere if needed
+ * 
+ * @param metadata - Datasource metadata (fields, parameters)
+ * @returns Object with aliasIndex, metricFields, and timeFields
+ */
+export function buildIndicesFromMetadata(metadata: DatasourceMetadata): {
+  aliasIndex: Record<string, string[]>;
+  metricFields: string[];
+  timeFields: string[];
+} {
+  const aliasIndex: Record<string, string[]> = {};
+  const metricFields: string[] = [];
+  const timeFields: string[] = [];
+
+  for (const field of metadata.fields) {
+    const fieldName = field.name;
+    
+    // Build alias index: token → list of candidate field names
+    // Split field name and description on whitespace/underscore, lowercase, map to field name
+    const tokens = new Set<string>();
+    
+    // Add tokens from field name
+    const nameTokens = fieldName.split(/[\s_]+/).map(t => t.toLowerCase().trim()).filter(t => t.length > 0);
+    for (const token of nameTokens) {
+      tokens.add(token);
+    }
+    
+    // Add tokens from description if available
+    if (field.description) {
+      const descTokens = field.description.split(/[\s_]+/).map(t => t.toLowerCase().trim()).filter(t => t.length > 0);
+      for (const token of descTokens) {
+        tokens.add(token);
+      }
+    }
+    
+    // Map each token to field name (add to list if multiple fields share token)
+    for (const token of tokens) {
+      if (!aliasIndex[token]) {
+        aliasIndex[token] = [];
+      }
+      if (!aliasIndex[token].includes(fieldName)) {
+        aliasIndex[token].push(fieldName);
+      }
+    }
+    
+    // Build metricFields: role='MEASURE' OR (dataType in ['REAL', 'INTEGER'] AND dataCategory='QUANTITATIVE')
+    // Note: dataType in ['REAL', 'INTEGER'] is a fallback using standard Tableau metadata enum values (not domain-specific hard-coding)
+    const isMeasure = field.role === 'MEASURE';
+    const isQuantitativeNumeric = (field.dataType === 'REAL' || field.dataType === 'INTEGER') && field.dataCategory === 'QUANTITATIVE';
+    if (isMeasure || isQuantitativeNumeric) {
+      metricFields.push(fieldName);
+    }
+    
+    // Build timeFields: dataType='DATE' (primary), or description matches time patterns (fallback)
+    if (field.dataType === 'DATE') {
+      timeFields.push(fieldName);
+    } else if (field.description && /\b(date|time|year|month|quarter|day)\b/i.test(field.description)) {
+      // Fallback: only if no DATE fields found (will be checked during usage)
+      timeFields.push(fieldName);
+    }
+  }
+
+  return { aliasIndex, metricFields, timeFields };
+}
+
+/**
  * Format context metadata into readable string for LLM
  * 
  * @param metadata - Datasource metadata (fields, parameters)
  * @param datasourceLuid - Datasource LUID (for context)
  * @param datasourceName - Optional datasource name
+ * @param datasourceDescription - Optional datasource description
  * @param workbookInfo - Optional workbook information (id, name)
  * @param viewInfo - Optional view information (id, name)
  * @returns Formatted context string ready for LLM system message
@@ -93,6 +197,7 @@ function getMCPClient(): MCPClient {
  *   metadata,
  *   'datasource-luid-123',
  *   'Sales Data',
+ *   'Sales data from Q4 2023',
  *   { id: 'workbook-123', name: 'Sales Dashboard' },
  *   { id: 'view-123', name: 'Overview' }
  * );
@@ -103,6 +208,7 @@ export function formatContextString(
   metadata: DatasourceMetadata,
   datasourceLuid: string,
   datasourceName?: string,
+  datasourceDescription?: string,
   workbookInfo?: { id?: string; name?: string },
   viewInfo?: { id?: string; name?: string }
 ): string {
@@ -114,6 +220,9 @@ export function formatContextString(
   // Datasource information
   const dsName = datasourceName || 'Unknown Datasource';
   lines.push(`- Datasource: ${dsName} (${datasourceLuid})`);
+  if (datasourceDescription) {
+    lines.push(`  Description: ${datasourceDescription}`);
+  }
   lines.push(`- IMPORTANT: This session is locked to the datasource above. You MUST use this datasource for all queries.`);
   lines.push(`- The "list-datasources" tool is not available. Use only "query-datasource" and "get-datasource-metadata" with this datasource.`);
   
@@ -132,11 +241,16 @@ export function formatContextString(
   lines.push('Available Fields:');
   
   if (metadata.fields && metadata.fields.length > 0) {
-    // Format each field: name (dataType, role)
-    for (const field of metadata.fields) {
-      const role = field.role || 'UNKNOWN';
-      const dataType = field.dataType || 'UNKNOWN';
-      lines.push(`  - ${field.name} (${dataType}, ${role})`);
+    // Format each field: name (dataType, role) with optional description
+    for (const f of metadata.fields) {
+      const desc = sanitizeDescription(f.description, 100);
+      const role = f.role || 'UNKNOWN';
+      const dataType = f.dataType || 'UNKNOWN';
+      if (desc) {
+        lines.push(`  - ${f.name} (${dataType}, ${role}): ${desc}`);
+      } else {
+        lines.push(`  - ${f.name} (${dataType}, ${role})`);
+      }
     }
   } else {
     lines.push('  (No fields available)');
@@ -346,13 +460,16 @@ export async function buildContextEnvelope(
                        trimmedLuid.toLowerCase().includes('placeholder') || 
                        trimmedLuid.length < 10;
     
+    // Get datasource name and description (try to find from list-datasources or use config default)
+    let datasourceDescription: string | undefined;
     if (!isTestLuid) {
       try {
-        // Try to get datasource name from list-datasources
+        // Try to get datasource name and description from list-datasources
         const datasources = await mcpClient.listDatasources({ limit: 100 });
         const matchingDs = datasources.find((ds) => ds.id === trimmedLuid);
         if (matchingDs) {
           datasourceName = matchingDs.name;
+          datasourceDescription = sanitizeDescription(matchingDs.description);
         }
       } catch {
         // If list-datasources fails, try config default
@@ -419,11 +536,15 @@ export async function buildContextEnvelope(
       }
     }
     
+    // Build indices from metadata (single source of truth)
+    const { aliasIndex, metricFields, timeFields } = buildIndicesFromMetadata(datasourceMetadata);
+    
     // Format context string
     const contextString = formatContextString(
       datasourceMetadata,
       trimmedLuid,
       datasourceName,
+      datasourceDescription,
       workbookInfo,
       viewInfo
     );
@@ -434,12 +555,16 @@ export async function buildContextEnvelope(
     const cacheEntry: ContextCache = {
       datasourceLuid: trimmedLuid,
       datasourceName,
+      datasourceDescription,
       datasourceMetadata,
       workbookId: workbookInfo?.id,
       workbookName: workbookInfo?.name,
       viewId: viewInfo?.id,
       viewName: viewInfo?.name,
       contextString,
+      aliasIndex,
+      metricFields,
+      timeFields,
       timestamp: Date.now(),
     };
     
@@ -461,6 +586,7 @@ export async function buildContextEnvelope(
         { fields: [] }, // Empty metadata
         trimmedLuid,
         config.defaults.datasourceName,
+        undefined, // No description available in fallback
         workbookId ? { id: workbookId, name: config.defaults.workbookName } : undefined,
         viewId ? { id: viewId, name: config.defaults.viewName } : undefined
       );
@@ -470,5 +596,84 @@ export async function buildContextEnvelope(
     // If no fallback available, throw error
     throw new Error(`Failed to build context envelope: ${errorMessage}`);
   }
+}
+
+/**
+ * Get metadata indices from cache (cache-first, synchronous check)
+ * Used by clarification logic to access aliasIndex, metricFields, timeFields
+ * 
+ * @param datasourceLuid - Datasource LUID to look up
+ * @returns Metadata indices if cached, undefined if not cached
+ */
+export function getMetadataIndicesFromCache(datasourceLuid?: string): {
+  aliasIndex?: Record<string, string[]>;
+  metricFields?: string[];
+  timeFields?: string[];
+} | undefined {
+  if (!datasourceLuid) {
+    return undefined;
+  }
+  
+  const trimmedLuid = datasourceLuid.trim();
+  const cachedEntry = contextCache.get(trimmedLuid);
+  
+  if (!cachedEntry) {
+    return undefined;
+  }
+  
+  // Check if cache is expired
+  const now = Date.now();
+  const age = now - cachedEntry.timestamp;
+  if (age > CACHE_EXPIRATION_MS) {
+    return undefined;
+  }
+  
+  return {
+    aliasIndex: cachedEntry.aliasIndex,
+    metricFields: cachedEntry.metricFields,
+    timeFields: cachedEntry.timeFields,
+  };
+}
+
+/**
+ * Trigger async metadata refresh (non-blocking)
+ * Fetches metadata only (lighter than buildContextEnvelope) and rebuilds indices
+ * 
+ * @param datasourceLuid - Datasource LUID to refresh
+ */
+export function triggerAsyncMetadataRefresh(datasourceLuid: string): void {
+  const trimmedLuid = datasourceLuid.trim();
+  
+  // Don't block - fire async refresh
+  setImmediate(async () => {
+    try {
+      const mcpClient = getMCPClient();
+      const metadata = await mcpClient.getDatasourceMetadata(trimmedLuid);
+      
+      // Build indices
+      const { aliasIndex, metricFields, timeFields } = buildIndicesFromMetadata(metadata);
+      
+      // Update cache entry if it exists
+      const cachedEntry = contextCache.get(trimmedLuid);
+      if (cachedEntry) {
+        cachedEntry.aliasIndex = aliasIndex;
+        cachedEntry.metricFields = metricFields;
+        cachedEntry.timeFields = timeFields;
+        cachedEntry.datasourceMetadata = metadata;
+        cachedEntry.timestamp = Date.now();
+        contextCache.set(trimmedLuid, cachedEntry);
+        
+        if (config.server.nodeEnv === 'development') {
+          console.log(`[Context] Refreshed metadata indices for datasource: ${trimmedLuid.substring(0, 8)}...`);
+        }
+      }
+    } catch (error) {
+      // Log error but don't throw (non-blocking refresh)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (config.server.nodeEnv === 'development') {
+        console.warn(`[Context] Failed to refresh metadata indices for datasource ${trimmedLuid.substring(0, 8)}...:`, errorMessage);
+      }
+    }
+  });
 }
 

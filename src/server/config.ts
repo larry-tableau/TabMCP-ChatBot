@@ -28,6 +28,54 @@ if (envResult.error) {
 export const DEFAULT_LLM_MAX_TOKENS = 1024;
 
 /**
+ * Maximum length for datasource descriptions in context (characters)
+ */
+export const MAX_DATASOURCE_DESC_LENGTH = 300;
+
+/**
+ * Maximum length for field descriptions in context (characters)
+ */
+export const MAX_FIELD_DESC_LENGTH = 100;
+
+/**
+ * Maximum size for tool result content in bytes (default: 100KB)
+ * Tool results exceeding this limit will be truncated to prevent LLM input overflow
+ * Can be configured via MAX_TOOL_RESULT_SIZE_BYTES environment variable
+ */
+export const MAX_TOOL_RESULT_SIZE_BYTES = (() => {
+  const envValue = process.env.MAX_TOOL_RESULT_SIZE_BYTES;
+  if (!envValue) {
+    return 100 * 1024; // Default: 100KB
+  }
+  const parsed = parseInt(envValue, 10);
+  if (isNaN(parsed) || parsed < 1024) {
+    throw new Error(
+      `Invalid MAX_TOOL_RESULT_SIZE_BYTES: "${envValue}". Must be an integer >= 1024 (1KB).`
+    );
+  }
+  return parsed;
+})();
+
+/**
+ * Maximum number of data rows to include in query-datasource tool results
+ * If a query returns more rows, only the first N rows are included with a summary
+ * Can be configured via MAX_QUERY_RESULT_ROWS environment variable
+ */
+export const MAX_QUERY_RESULT_ROWS = (() => {
+  const envValue = process.env.MAX_QUERY_RESULT_ROWS;
+  if (!envValue) {
+    return 100; // Default: 100 rows
+  }
+  const parsed = parseInt(envValue, 10);
+  if (isNaN(parsed) || parsed < 1) {
+    throw new Error(
+      `Invalid MAX_QUERY_RESULT_ROWS: "${envValue}". Must be an integer >= 1.`
+    );
+  }
+  return parsed;
+})();
+
+/**
  * MCP (Model Context Protocol) configuration
  */
 export interface MCPConfig {
@@ -152,6 +200,8 @@ function createConfig(): Config {
  * Optional environment variables:
  * - LLM_MODEL: LLM model identifier (default: 'claude-sonnet-4-5-20250929')
  * - LLM_MAX_TOKENS: Default maximum tokens for requests (default: DEFAULT_LLM_MAX_TOKENS, must be >= 1)
+ * - MAX_TOOL_RESULT_SIZE_BYTES: Maximum size for tool result content in bytes (default: 102400 = 100KB, must be >= 1024)
+ * - MAX_QUERY_RESULT_ROWS: Maximum number of rows in query results (default: 100, must be >= 1)
  * - DEFAULT_DATASOURCE_LUID: Default datasource LUID
  * - DEFAULT_DATASOURCE_NAME: Default datasource name
  * - DEFAULT_WORKBOOK_ID: Default workbook ID

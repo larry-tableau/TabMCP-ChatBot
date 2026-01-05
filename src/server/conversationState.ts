@@ -14,6 +14,23 @@
 
 import { randomUUID } from 'node:crypto';
 
+/**
+ * Pending clarification state
+ * Tracks when clarification is needed and what information is expected
+ */
+export interface PendingClarificationState {
+  /** Reason for clarification (e.g., 'missing_time_range', 'pronoun_followup_no_metric') */
+  reason: string;
+  /** Original user query that triggered clarification */
+  originalQuery: string;
+  /** Expected slot type for the clarification response */
+  expectedSlot: 'metric' | 'time_range' | 'time_granularity';
+  /** Timestamp when clarification was triggered (milliseconds since epoch) */
+  timestamp: number;
+  /** Number of mismatches (for "keep for one more turn" logic) */
+  mismatchCount?: number;
+}
+
 export interface ConversationState {
   sessionId: string;
   messages: Array<{ role: string; content: string }>;
@@ -24,6 +41,8 @@ export interface ConversationState {
   currentViewId?: string;
   currentViewName?: string;
   lastAccessAt?: number; // Optional timestamp for TTL cleanup
+  /** Pending clarification state (if clarification was requested) */
+  pendingClarification?: PendingClarificationState;
 }
 
 export class ConversationStateManager {
@@ -143,6 +162,83 @@ export class ConversationStateManager {
     state.messages.push({ role, content });
     state.lastAccessAt = Date.now();
     this.sessions.set(sessionId, state);
+  }
+
+  /**
+   * Set pending clarification state
+   */
+  setPendingClarification(
+    sessionId: string,
+    pendingClarification: PendingClarificationState
+  ): void {
+    const state = this.getState(sessionId);
+    if (!state) {
+      return; // No-op if session not found
+    }
+    
+    state.pendingClarification = pendingClarification;
+    state.lastAccessAt = Date.now();
+    this.sessions.set(sessionId, state);
+  }
+
+  /**
+   * Clear pending clarification state
+   */
+  clearPendingClarification(sessionId: string): void {
+    const state = this.getState(sessionId);
+    if (!state) {
+      return; // No-op if session not found
+    }
+    
+    state.pendingClarification = undefined;
+    state.lastAccessAt = Date.now();
+    this.sessions.set(sessionId, state);
+  }
+
+  /**
+   * Check if pending clarification is expired
+   * Expires after 3 user messages or 5 minutes, whichever comes first
+   */
+  isPendingClarificationExpired(sessionId: string): boolean {
+    const state = this.getState(sessionId);
+    if (!state || !state.pendingClarification) {
+      return true; // No pending state = considered expired
+    }
+    
+    const pending = state.pendingClarification;
+    const now = Date.now();
+    
+    // Check time-based expiry (5 minutes)
+    const ageMs = now - pending.timestamp;
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    if (ageMs > FIVE_MINUTES_MS) {
+      return true;
+    }
+    
+    // Check message-based expiry (3 user messages since clarification was triggered)
+    // Find the assistant message that contains the clarification question
+    // Count user messages after that point
+    let clarificationMessageIndex = -1;
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      const msg = state.messages[i];
+      if (msg.role === 'assistant' && msg.content.includes('I need a bit more information')) {
+        clarificationMessageIndex = i;
+        break;
+      }
+    }
+    
+    if (clarificationMessageIndex >= 0) {
+      // Count user messages after the clarification message
+      const userMessagesAfterClarification = state.messages
+        .slice(clarificationMessageIndex + 1)
+        .filter(msg => msg.role === 'user');
+      
+      if (userMessagesAfterClarification.length >= 3) {
+        return true; // 3+ user messages after clarification = expired
+      }
+    }
+    
+    return false;
   }
 
   /**

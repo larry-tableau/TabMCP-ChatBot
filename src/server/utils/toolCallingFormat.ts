@@ -13,6 +13,7 @@
  */
 
 import type { LLMMessage, LLMResponseChunk } from '../llmClient.js';
+import { MAX_TOOL_RESULT_SIZE_BYTES, MAX_QUERY_RESULT_ROWS } from '../config.js';
 
 /**
  * Tool Call interface
@@ -195,10 +196,104 @@ export function buildAssistantMessageWithToolResults(
 }
 
 /**
+ * Truncate query result data array to prevent LLM input overflow
+ * 
+ * For query-datasource results, if the data array exceeds MAX_QUERY_RESULT_ROWS,
+ * truncate to first N rows and include metadata about total row count.
+ * 
+ * @param result - Query result object with data array
+ * @returns Truncated result with summary metadata
+ */
+function truncateQueryResult(result: unknown): unknown {
+  // Check if this is a query result with data array
+  if (
+    result &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    'data' in result &&
+    Array.isArray((result as { data?: unknown }).data)
+  ) {
+    const queryResult = result as { data: Array<Record<string, unknown>> };
+    const totalRows = queryResult.data.length;
+    
+    if (totalRows > MAX_QUERY_RESULT_ROWS) {
+      // Truncate to first N rows
+      const truncatedData = queryResult.data.slice(0, MAX_QUERY_RESULT_ROWS);
+      
+      // Return truncated result with metadata
+      return {
+        ...queryResult,
+        data: truncatedData,
+        _metadata: {
+          totalRows,
+          returnedRows: MAX_QUERY_RESULT_ROWS,
+          truncated: true,
+          note: `Result truncated: showing first ${MAX_QUERY_RESULT_ROWS} of ${totalRows} rows`,
+        },
+      };
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * Truncate tool result content if it exceeds size limit
+ * 
+ * @param content - JSON stringified tool result content
+ * @returns Truncated content string with truncation indicator
+ */
+function truncateToolResultContent(content: string): string {
+  // Convert to bytes (UTF-8 encoding: 1 char = 1-4 bytes, approximate as 1 byte per char)
+  const sizeBytes = Buffer.byteLength(content, 'utf8');
+  
+  if (sizeBytes <= MAX_TOOL_RESULT_SIZE_BYTES) {
+    return content;
+  }
+  
+  // Truncate to max size (leave room for truncation indicator)
+  const truncationIndicator = '... [TRUNCATED: result too large]';
+  const maxContentSize = MAX_TOOL_RESULT_SIZE_BYTES - Buffer.byteLength(truncationIndicator, 'utf8');
+  
+  // Truncate string (approximate, may be slightly over due to multi-byte chars)
+  let truncated = content.slice(0, maxContentSize);
+  
+  // Ensure we don't break JSON structure - find last complete JSON value
+  // Simple approach: find last complete object/array boundary
+  const lastBrace = truncated.lastIndexOf('}');
+  const lastBracket = truncated.lastIndexOf(']');
+  const lastBoundary = Math.max(lastBrace, lastBracket);
+  
+  if (lastBoundary > maxContentSize * 0.8) {
+    // If we found a reasonable boundary, use it
+    truncated = truncated.slice(0, lastBoundary + 1);
+  }
+  
+  // Try to parse to ensure valid JSON
+  try {
+    JSON.parse(truncated);
+  } catch {
+    // If invalid, wrap in object with error message
+    truncated = JSON.stringify({
+      _truncated: true,
+      _note: 'Result was too large and had to be truncated',
+      _originalSizeBytes: sizeBytes,
+      _truncatedSizeBytes: Buffer.byteLength(truncated, 'utf8'),
+    });
+  }
+  
+  return truncated + truncationIndicator;
+}
+
+/**
  * Format an MCP tool result into LLM tool_result format
  * 
  * Converts MCP tool execution results (objects, arrays, primitives) into
  * the JSON stringified format required by the LLM Gateway.
+ * 
+ * **Size Limits:**
+ * - Query results with data arrays are truncated to MAX_QUERY_RESULT_ROWS rows
+ * - All results are truncated if they exceed MAX_TOOL_RESULT_SIZE_BYTES
  * 
  * @param toolUseId - Tool use ID from the original tool call (required)
  * @param result - MCP tool result (any type - will be JSON stringified)
@@ -228,10 +323,13 @@ export function formatToolResult(
     throw new Error('Tool use ID must be a non-empty string');
   }
 
+  // First, truncate query results if needed (before stringification)
+  const truncatedResult = truncateQueryResult(result);
+
   let content: string;
   try {
     // JSON stringify the result
-    content = JSON.stringify(result);
+    content = JSON.stringify(truncatedResult);
   } catch (stringifyError) {
     // If JSON.stringify fails, fallback to String() representation
     // This handles circular references and other edge cases
@@ -239,6 +337,9 @@ export function formatToolResult(
     console.warn(`[LLM] Failed to JSON stringify tool result, using String() fallback: ${errorMessage}`);
     content = JSON.stringify({ error: String(result) });
   }
+
+  // Truncate content if it exceeds size limit
+  content = truncateToolResultContent(content);
 
   return {
     tool_use_id: toolUseId.trim(),

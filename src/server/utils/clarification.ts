@@ -16,6 +16,42 @@ export interface ClarificationResult {
   reason?: string;
 }
 
+export interface TemporalPhraseResult {
+  type: 'time_range' | 'time_granularity' | null;
+  matched: boolean;
+}
+
+export interface MetadataIndices {
+  aliasIndex?: Record<string, string[]>;
+  metricFields?: string[];
+  timeFields?: string[];
+}
+
+/**
+ * Detect temporal phrases in user message
+ * Minimal detection: time_range (numeric+unit) vs time_granularity (unit-only)
+ * 
+ * @param message - User message to analyze
+ * @returns TemporalPhraseResult with type and matched flag
+ */
+export function detectTemporalPhrase(message: string): TemporalPhraseResult {
+  // Time range: numeric + unit patterns (e.g., "past 6 months", "last 3 quarters", "2024")
+  const timeRangePattern = /\b(\d+\s*(month|quarter|year|day|week)s?|past\s+\d+|last\s+\d+|since\s+\d{4}|\d{4})\b/i;
+  
+  // Time granularity: unit-only patterns (e.g., "daily", "monthly", "by quarter")
+  const timeGranularityPattern = /\b(daily|monthly|quarterly|yearly|weekly|by\s+(day|month|quarter|year|week))\b/i;
+  
+  if (timeRangePattern.test(message)) {
+    return { type: 'time_range', matched: true };
+  }
+  
+  if (timeGranularityPattern.test(message)) {
+    return { type: 'time_granularity', matched: true };
+  }
+  
+  return { type: null, matched: false };
+}
+
 /**
  * Check if user message needs clarification before executing tool calls
  * 
@@ -30,13 +66,19 @@ export interface ClarificationResult {
  * 8. Missing comparison baseline ("compare to what?") when user asks "compare" - optional
  * 9. Ambiguous grouping dimension (e.g., "by region" when multiple region fields exist) - optional
  * 
+ * Function must remain pure (no cache reads, no side effects)
+ * 
  * @param userMessage - User's question/message
  * @param state - Current conversation state (for history and context)
+ * @param metadataIndices - Optional metadata indices (aliasIndex, metricFields, timeFields)
+ * @param temporalPhrase - Optional temporal phrase detection result
  * @returns ClarificationResult with needsClarification flag and optional question
  */
 export function needsClarification(
   userMessage: string,
-  state?: ConversationState
+  state?: ConversationState,
+  metadataIndices?: MetadataIndices,
+  temporalPhrase?: TemporalPhraseResult
 ): ClarificationResult {
   const history = state?.messages || [];
   const lastMessages = history.slice(-4); // Check last 4 messages for context
@@ -47,17 +89,35 @@ export function needsClarification(
   
   if (pronounPattern.test(userMessage) || comparePattern.test(userMessage)) {
     // Check if there's a clear prior metric/field mentioned in recent history
-    const hasPriorMetric = lastMessages.some(msg => {
-      const content = msg.content.toLowerCase();
-      // Look for common metric indicators
-      return /\b(sales|revenue|profit|quantity|count|total|average|sum)\b/i.test(content) ||
-             /\b(field|metric|measure|dimension)\b/i.test(content);
-    });
+    // Use metadataIndices if available, otherwise fall back to hardcoded keywords
+    let hasPriorMetric = false;
+    
+    if (metadataIndices?.metricFields && metadataIndices.metricFields.length > 0) {
+      // Check if any metric fields are mentioned in recent history
+      const metricFieldsLower = metadataIndices.metricFields.map(f => f.toLowerCase());
+      hasPriorMetric = lastMessages.some(msg => {
+        const content = msg.content.toLowerCase();
+        return metricFieldsLower.some(metric => content.includes(metric));
+      });
+    } else {
+      // Fallback to hardcoded keywords if metadata not available
+      hasPriorMetric = lastMessages.some(msg => {
+        const content = msg.content.toLowerCase();
+        return /\b(sales|revenue|profit|quantity|count|total|average|sum)\b/i.test(content) ||
+               /\b(field|metric|measure|dimension)\b/i.test(content);
+      });
+    }
     
     if (!hasPriorMetric) {
+      // Include dynamic suggestions from metricFields if available
+      let question = "I need a bit more information to answer your question:\n• What metric or data would you like me to compare or analyze?";
+      if (metadataIndices?.metricFields && metadataIndices.metricFields.length > 0) {
+        const suggestions = metadataIndices.metricFields.slice(0, 3).join(', ');
+        question += `\n  Available metrics include: ${suggestions}`;
+      }
       return {
         needsClarification: true,
-        question: "I need a bit more information to answer your question:\n• What metric or data would you like me to compare or analyze?",
+        question,
         reason: 'pronoun_followup_no_metric'
       };
     }
@@ -73,23 +133,36 @@ export function needsClarification(
   }
 
   // Heuristic 2: Missing required parameters (date ranges for trends)
+  // Use temporalPhrase if provided, otherwise detect inline
   const trendPattern = /\b(trend|over time|over the|historical|past|recent|last|since|during)\b/i;
-  const datePattern = /\b(\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|january|february|march|april|may|june|july|august|september|october|november|december|q1|q2|q3|q4|year|month|week|day)\b/i;
+  const hasTemporalPhrase = temporalPhrase?.matched || false;
+  const temporalType = temporalPhrase?.type;
   
-  if (trendPattern.test(userMessage) && !datePattern.test(userMessage)) {
+  if (trendPattern.test(userMessage) && !hasTemporalPhrase) {
+    // Check if timeFields exist and suggest them
+    let question = "I need a bit more information to answer your question:\n• What time period would you like to see? (e.g., 'last month', 'Q1 2024', 'past 6 months')";
+    if (metadataIndices?.timeFields && metadataIndices.timeFields.length > 0) {
+      const suggestions = metadataIndices.timeFields.slice(0, 3).join(', ');
+      question += `\n  Available time fields include: ${suggestions}`;
+    }
     return {
       needsClarification: true,
-      question: "I need a bit more information to answer your question:\n• What time period would you like to see? (e.g., 'last month', 'Q1 2024', 'past 6 months')",
+      question,
       reason: 'missing_time_range'
     };
   }
 
   // Heuristic 7: Missing time granularity for trends
-  if (trendPattern.test(userMessage) && !/\b(daily|monthly|quarterly|yearly|weekly|day|month|quarter|year|week)\b/i.test(userMessage)) {
+  if (trendPattern.test(userMessage) && temporalType !== 'time_granularity') {
     // Only ask if they haven't specified granularity and it's a trend question
+    let question = "I need a bit more information to answer your question:\n• What time granularity would you like? (e.g., daily, monthly, quarterly, yearly)";
+    if (metadataIndices?.timeFields && metadataIndices.timeFields.length > 0) {
+      const suggestions = metadataIndices.timeFields.slice(0, 3).join(', ');
+      question += `\n  Available time fields include: ${suggestions}`;
+    }
     return {
       needsClarification: true,
-      question: "I need a bit more information to answer your question:\n• What time granularity would you like? (e.g., daily, monthly, quarterly, yearly)",
+      question,
       reason: 'missing_time_granularity'
     };
   }

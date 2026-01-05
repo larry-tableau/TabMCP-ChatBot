@@ -28,6 +28,8 @@ const ENV_CONFIG: EnvConfig = {
     'DEFAULT_VIEW_NAME',
     'PORT',
     'NODE_ENV',
+    'MAX_TOOL_RESULT_SIZE_BYTES',
+    'MAX_QUERY_RESULT_ROWS',
   ],
 };
 

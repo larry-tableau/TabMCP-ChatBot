@@ -17,7 +17,7 @@
  * - Error message display (Task 7)
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import ProgressIndicator from './ProgressIndicator';
 import ErrorMessage, { type ErrorData } from './ErrorMessage';
 import CitationPopup, { type CitationObject } from './CitationPopup';
@@ -71,11 +71,14 @@ interface ChatInterfaceProps {
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasourceLuid, workbookId, viewId }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>('');
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const [historyInput, setHistoryInput] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const prevDatasourceLuidRef = useRef<string | undefined>(undefined);
 
   // Use SSE hook for chat streaming
-  const { answer, citations, progressPhase, error, isStreaming, sessionId, sendMessage } = useChatSSE();
+  const { answer, citations, progressPhase, error, isStreaming, sessionId, clearSession, sendMessage } = useChatSSE();
   
   // Citation popup state
   const [selectedCitation, setSelectedCitation] = useState<CitationObject | null>(null);
@@ -137,6 +140,30 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasourceLuid, workbookI
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
     }
   }, [input]);
+
+  // Clear messages and session when datasource changes (with mount guard)
+  useEffect(() => {
+    // Guard: only clear if changing from one non-undefined value to another
+    if (prevDatasourceLuidRef.current !== undefined && 
+        prevDatasourceLuidRef.current !== datasourceLuid && 
+        datasourceLuid !== undefined) {
+      // Clear in same effect to ensure atomicity
+      setMessages([]);
+      clearSession();
+      setInput(''); // Reset input state
+      setHistoryIndex(-1);
+      setHistoryInput('');
+      setSelectedCitation(null);
+    }
+    // Update ref for next comparison
+    prevDatasourceLuidRef.current = datasourceLuid;
+  }, [datasourceLuid, clearSession]);
+
+  // Memoized user messages for history cycling
+  const userMessages = useMemo(() => 
+    messages.filter(m => m.role === 'user').map(m => m.content), 
+    [messages]
+  );
 
   // Handle answer updates from SSE hook
   useEffect(() => {
@@ -260,9 +287,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasourceLuid, workbookI
 
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
+    setHistoryIndex(-1); // Reset history index on submit
 
     // Immediate scroll after user message
     setTimeout(scrollToBottom, 50);
+
+    // Retain focus on textarea after submit
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 0);
 
     // Send message via SSE hook
     sendMessage(trimmedInput, {
@@ -272,11 +305,54 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasourceLuid, workbookI
     });
   };
 
-  // Handle Enter key (Shift+Enter for new line)
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  // Handle keyboard events (Enter, ArrowUp, ArrowDown)
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter key (existing logic)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
+      return;
+    }
+    
+    // ArrowUp: cycle backward through history
+    if (e.key === 'ArrowUp' && textareaRef.current?.selectionStart === 0) {
+      e.preventDefault();
+      if (userMessages.length > 0) {
+        let nextIndex: number;
+        if (historyIndex === -1) {
+          // Entering history mode: save current input
+          setHistoryInput(input);
+          nextIndex = userMessages.length - 1;
+        } else if (historyIndex > 0) {
+          nextIndex = historyIndex - 1;
+        } else {
+          // Already at first message, stay there
+          nextIndex = historyIndex;
+        }
+        setHistoryIndex(nextIndex);
+        setInput(userMessages[nextIndex]);
+      }
+      return;
+    }
+    
+    // ArrowDown: cycle forward through history
+    if (e.key === 'ArrowDown' && historyIndex >= 0) {
+      e.preventDefault();
+      if (historyIndex < userMessages.length - 1) {
+        const nextIndex = historyIndex + 1;
+        setHistoryIndex(nextIndex);
+        setInput(userMessages[nextIndex]);
+      } else {
+        // Past end: restore original input
+        setHistoryIndex(-1);
+        setInput(historyInput);
+      }
+      return;
+    }
+    
+    // Reset history index when user types
+    if (historyIndex >= 0 && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape')) {
+      setHistoryIndex(-1);
     }
   };
 
@@ -373,10 +449,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasourceLuid, workbookI
           className="chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyDown}
           placeholder="Type your message here... (Shift+Enter for new line)"
           rows={1}
-          disabled={isStreaming}
         />
         <button
           type="submit"

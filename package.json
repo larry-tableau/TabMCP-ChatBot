@@ -12,6 +12,7 @@
     "start": "node dist/server/server.js",
     "type-check": "tsc --noEmit",
     "reload-env": "tsx tools/reload-env.ts",
+    "validate-descriptions": "tsx tools/validate-mcp-descriptions.ts",
     "tool-definitions-smoke": "tsx tools/mcp-tool-definitions-smoke.ts --verbose true",
     "tool-definitions:integration": "tsx tools/mcp-tool-definitions-integration.ts --verbose true"
   },

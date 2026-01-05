@@ -594,11 +594,13 @@ export class ToolCallingLoop {
     }
 
     // Create system message with context (if available)
+    // The contextString contains complete datasource metadata (fields, types, roles, descriptions)
+    // that the LLM uses to understand the data structure and generate accurate tool calls
     const messages: LLMMessage[] = [];
     if (contextString) {
       messages.push({
         role: 'system',
-        content: contextString,
+        content: contextString, // Contains: datasource info, all field metadata (name, type, role, description), workbook/view info
       });
     }
 

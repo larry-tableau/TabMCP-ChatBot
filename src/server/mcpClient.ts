@@ -191,6 +191,8 @@ export interface FieldMetadata {
   name: string;
   /** Data type (STRING, REAL, INTEGER, DATE, etc.) */
   dataType: string;
+  /** Field description */
+  description?: string;
   /** Column class (COLUMN, CALCULATION, BIN, GROUP) */
   columnClass?: string;
   /** Default aggregation (SUM, COUNT, AVG, YEAR, NONE, AGG, etc.) */

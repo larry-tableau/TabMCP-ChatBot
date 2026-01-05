@@ -30,7 +30,8 @@ import { setupSSEHeaders, sendSSEEvent, sendKeepAlive, hasSSEEventBeenSent } fro
 import { MCPClient } from './mcpClient.js';
 import { ToolCallingLoop } from './toolCallingLoop.js';
 import { conversationStateManager } from './conversationState.js';
-import { needsClarification } from './utils/clarification.js';
+import { needsClarification, detectTemporalPhrase } from './utils/clarification.js';
+import { getMetadataIndicesFromCache, triggerAsyncMetadataRefresh } from './utils/contextEnvelope.js';
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { mapErrorToUserFriendly, logError } from './utils/errorMapping.js';
@@ -403,11 +404,93 @@ app.post('/api/chat', async (req: Request, res: Response, next: NextFunction) =>
       });
     }
 
-    // Add user message to session state
-    conversationStateManager.addMessage(state.sessionId, 'user', message.trim());
+    // Check for pending clarification state first (before adding message)
+    const pendingClarification = state.pendingClarification;
+    let shouldProceedToToolCalling = false;
+    
+    if (pendingClarification) {
+      // Check if expired (3 messages or 5 minutes)
+      if (conversationStateManager.isPendingClarificationExpired(state.sessionId)) {
+        conversationStateManager.clearPendingClarification(state.sessionId);
+      } else {
+        // Check if message matches expected slot
+        const temporalPhrase = detectTemporalPhrase(message.trim());
+        const matchesExpectedSlot = 
+          (pendingClarification.expectedSlot === 'time_range' && temporalPhrase.type === 'time_range') ||
+          (pendingClarification.expectedSlot === 'time_granularity' && temporalPhrase.type === 'time_granularity') ||
+          (pendingClarification.expectedSlot === 'metric' && message.trim().length > 0); // Any non-empty message for metric
+        
+        if (matchesExpectedSlot) {
+          // Add clarification answer to message history
+          conversationStateManager.addMessage(state.sessionId, 'user', message.trim());
+          // Clear pending state - original query is already in message history
+          // Merge happens in toolCallingLoop.ts prompt construction (messages are separate, LLM sees both)
+          conversationStateManager.clearPendingClarification(state.sessionId);
+          shouldProceedToToolCalling = true; // Skip clarification check, proceed to tool calling
+        } else {
+          // Increment mismatch count
+          const mismatchCount = (pendingClarification.mismatchCount || 0) + 1;
+          if (mismatchCount > 1) {
+            // Clear after one more turn (keep for one more turn, then clear)
+            conversationStateManager.clearPendingClarification(state.sessionId);
+          } else {
+            // Update mismatch count
+            pendingClarification.mismatchCount = mismatchCount;
+            conversationStateManager.setPendingClarification(state.sessionId, pendingClarification);
+          }
+          // Treat as new query (continue to normal clarification check)
+        }
+      }
+    }
+    
+    // Add user message to session state (if not already added above)
+    if (!shouldProceedToToolCalling) {
+      conversationStateManager.addMessage(state.sessionId, 'user', message.trim());
+    }
 
+    // If pending clarification matched, skip clarification check and proceed to tool calling
+    if (shouldProceedToToolCalling) {
+      // Resolve context for this turn (use request values or fall back to session state)
+      const resolvedDatasourceLuid = datasourceLuid ?? state.currentDatasourceLuid;
+      const resolvedWorkbookId = workbookId ?? state.currentWorkbookId;
+      const resolvedViewId = viewId ?? state.currentViewId;
+      
+      // Create ToolCallingLoop instance and execute
+      const toolCallingLoop = new ToolCallingLoop();
+      try {
+        await toolCallingLoop.execute(
+          message.trim(),
+          resolvedDatasourceLuid,
+          resolvedWorkbookId,
+          resolvedViewId,
+          undefined, // maxIterations (use default)
+          res, // sseResponse
+          state.sessionId // sessionId
+        );
+      } catch (error) {
+        // Error handling (existing pattern)
+        next(error);
+      }
+      return;
+    }
+    
+    // Normal clarification check (no pending clarification or mismatch)
+    // Resolve datasource for metadata lookup
+    const resolvedDatasourceLuidForClarification = datasourceLuid ?? state.currentDatasourceLuid;
+    
+    // Get metadata indices from cache (cache-first, synchronous check)
+    const metadataIndices = getMetadataIndicesFromCache(resolvedDatasourceLuidForClarification);
+    
+    // Trigger async refresh if cache miss (non-blocking)
+    if (!metadataIndices && resolvedDatasourceLuidForClarification) {
+      triggerAsyncMetadataRefresh(resolvedDatasourceLuidForClarification);
+    }
+    
+    // Temporal detection: run before needsClarification()
+    const temporalPhrase = detectTemporalPhrase(message.trim());
+    
     // Check if clarification is needed before executing tool calls
-    const clarification = needsClarification(message.trim(), state);
+    const clarification = needsClarification(message.trim(), state, metadataIndices, temporalPhrase);
     if (clarification.needsClarification && clarification.question) {
       // Stream clarification as assistant response
       sendSSEEvent(res, 'answer_start', {
@@ -430,6 +513,18 @@ app.post('/api/chat', async (req: Request, res: Response, next: NextFunction) =>
       
       // Store clarification in session state
       conversationStateManager.addMessage(state.sessionId, 'assistant', clarificationText);
+      
+      // Store pending clarification state (original query in pendingClarification.originalQuery)
+      const expectedSlot = clarification.reason === 'missing_time_range' ? 'time_range' :
+                          clarification.reason === 'missing_time_granularity' ? 'time_granularity' :
+                          'metric';
+      conversationStateManager.setPendingClarification(state.sessionId, {
+        reason: clarification.reason || 'unknown',
+        originalQuery: message.trim(), // Store original query
+        expectedSlot,
+        timestamp: Date.now(),
+        mismatchCount: 0,
+      });
       
       // End response
       if (!res.writableEnded) {

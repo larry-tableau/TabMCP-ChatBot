@@ -76,7 +76,7 @@ export interface LLMTool {
  * LLM Request Options
  */
 export interface LLMRequestOptions {
-  /** Request timeout in milliseconds (default: 30000) */
+  /** Request timeout in milliseconds (default: 90000) */
   timeoutMs?: number;
   /** Maximum number of tokens (optional) */
   maxTokens?: number;
@@ -224,7 +224,7 @@ export class LLMClient {
     tools: LLMTool[],
     options?: LLMRequestOptions
   ): Promise<AsyncIterable<LLMResponseChunk>> {
-    const timeoutMs = options?.timeoutMs ?? 30000;
+    const timeoutMs = options?.timeoutMs ?? 90000;
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Validate options.maxTokens if provided
