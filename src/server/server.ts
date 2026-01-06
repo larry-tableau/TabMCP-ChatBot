@@ -30,7 +30,7 @@ import { setupSSEHeaders, sendSSEEvent, sendKeepAlive, hasSSEEventBeenSent } fro
 import { MCPClient } from './mcpClient.js';
 import { ToolCallingLoop } from './toolCallingLoop.js';
 import { conversationStateManager } from './conversationState.js';
-import { needsClarification, detectTemporalPhrase } from './utils/clarification.js';
+import { needsClarification } from './utils/clarification.js';
 import { getMetadataIndicesFromCache, triggerAsyncMetadataRefresh } from './utils/contextEnvelope.js';
 import { appendFileSync } from 'fs';
 import { join } from 'path';
@@ -414,10 +414,7 @@ app.post('/api/chat', async (req: Request, res: Response, next: NextFunction) =>
         conversationStateManager.clearPendingClarification(state.sessionId);
       } else {
         // Check if message matches expected slot
-        const temporalPhrase = detectTemporalPhrase(message.trim());
         const matchesExpectedSlot = 
-          (pendingClarification.expectedSlot === 'time_range' && temporalPhrase.type === 'time_range') ||
-          (pendingClarification.expectedSlot === 'time_granularity' && temporalPhrase.type === 'time_granularity') ||
           (pendingClarification.expectedSlot === 'metric' && message.trim().length > 0); // Any non-empty message for metric
         
         if (matchesExpectedSlot) {
@@ -486,11 +483,8 @@ app.post('/api/chat', async (req: Request, res: Response, next: NextFunction) =>
       triggerAsyncMetadataRefresh(resolvedDatasourceLuidForClarification);
     }
     
-    // Temporal detection: run before needsClarification()
-    const temporalPhrase = detectTemporalPhrase(message.trim());
-    
     // Check if clarification is needed before executing tool calls
-    const clarification = needsClarification(message.trim(), state, metadataIndices, temporalPhrase);
+    const clarification = needsClarification(message.trim(), state, metadataIndices);
     if (clarification.needsClarification && clarification.question) {
       // Stream clarification as assistant response
       sendSSEEvent(res, 'answer_start', {
@@ -515,9 +509,7 @@ app.post('/api/chat', async (req: Request, res: Response, next: NextFunction) =>
       conversationStateManager.addMessage(state.sessionId, 'assistant', clarificationText);
       
       // Store pending clarification state (original query in pendingClarification.originalQuery)
-      const expectedSlot = clarification.reason === 'missing_time_range' ? 'time_range' :
-                          clarification.reason === 'missing_time_granularity' ? 'time_granularity' :
-                          'metric';
+      const expectedSlot = 'metric';
       conversationStateManager.setPendingClarification(state.sessionId, {
         reason: clarification.reason || 'unknown',
         originalQuery: message.trim(), // Store original query

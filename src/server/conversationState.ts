@@ -19,12 +19,12 @@ import { randomUUID } from 'node:crypto';
  * Tracks when clarification is needed and what information is expected
  */
 export interface PendingClarificationState {
-  /** Reason for clarification (e.g., 'missing_time_range', 'pronoun_followup_no_metric') */
+  /** Reason for clarification (e.g., 'pronoun_followup_no_metric', 'missing_comparison_baseline') */
   reason: string;
   /** Original user query that triggered clarification */
   originalQuery: string;
   /** Expected slot type for the clarification response */
-  expectedSlot: 'metric' | 'time_range' | 'time_granularity';
+  expectedSlot: 'metric';
   /** Timestamp when clarification was triggered (milliseconds since epoch) */
   timestamp: number;
   /** Number of mismatches (for "keep for one more turn" logic) */
